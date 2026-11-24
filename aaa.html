@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Odalar & Arkadaşlar</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
+        body { background-color: #d1d7db; height: 100vh; display: flex; justify-content: center; align-items: center; }
+
+        #loginScreen {
+            background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            width: 340px; text-align: center;
+        }
+        #loginScreen h2 { color: #008069; margin-bottom: 20px; }
+        #loginScreen input { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+        #loginScreen button { width: 100%; padding: 12px; background: #008069; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+
+        #appScreen {
+            display: none; width: 96vw; max-width: 1150px; height: 92vh; background: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); overflow: hidden; border-radius: 4px; position: relative;
+        }
+
+        .sidebar { width: 34%; background: #ffffff; border-right: 1px solid #e9edef; display: flex; flex-direction: column; }
+        .sidebar-header { background: #008069; color: white; padding: 14px 16px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        
+        .tabs { display: flex; background: #008069; border-top: 1px solid rgba(255,255,255,0.2); }
+        .tab-btn {
+            flex: 1; padding: 10px; background: transparent; border: none; color: rgba(255,255,255,0.75);
+            font-weight: bold; cursor: pointer; border-bottom: 3px solid transparent; position: relative;
+        }
+        .tab-btn.active { color: white; border-bottom: 3px solid #25d366; }
+        .tab-dot {
+            display: none; width: 9px; height: 9px; background: #25d366; border-radius: 50%;
+            position: absolute; top: 8px; right: 18px;
+        }
+        .create-room { padding: 10px; background: #f0f2f5; display: flex; gap: 6px; border-bottom: 1px solid #ddd; }
+        .create-room input { flex: 1; padding: 8px 12px; border: none; border-radius: 18px; outline: none; font-size: 13px; }
+        .create-room button { background: #008069; color: white; border: none; padding: 8px 14px; border-radius: 18px; cursor: pointer; font-weight: bold; }
+
+        .list-container { flex: 1; overflow-y: auto; list-style: none; }
+        .list-item { padding: 13px 16px; border-bottom: 1px solid #f0f2f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .list-item:hover, .list-item.active { background: #f5f6f6; }
+        .badge { background: #25d366; color: white; font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+        .unread-badge { background: #ff3b30; color: white; font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: bold; margin-left: 5px; }
+
+        .chat-area { width: 66%; display: flex; flex-direction: column; background-color: #efeae2; }
+        .chat-header { background: #008069; color: white; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+        .msg { max-width: 68%; padding: 8px 12px; border-radius: 8px; font-size: 14px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+        .msg.received { background: #ffffff; align-self: flex-start; border-top-left-radius: 0; }
+        .msg.sent { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 0; }
+        .msg-sender { font-size: 12px; font-weight: bold; color: #008069; margin-bottom: 3px; cursor: pointer; text-decoration: underline; }
+        .sys-msg { align-self: center; background: #ffeecd; color: #54656f; font-size: 12px; padding: 5px 12px; border-radius: 8px; }
+
+        .input-box { background: #f0f2f5; padding: 10px 15px; display: flex; gap: 10px; }
+        .input-box input { flex: 1; padding: 12px 15px; border: none; border-radius: 24px; outline: none; font-size: 14px; }
+        .input-box button { background: #008069; color: white; border: none; padding: 10px 20px; border-radius: 24px; cursor: pointer; font-weight: bold; }
+
+        #toastBox { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+        .toast {
+            background: #111b21; color: white; padding: 12px 18px; border-radius: 8px; border-left: 5px solid #25d366;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-size: 13px; cursor: pointer;
+        }
+
+        #profileModal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-card { background: white; padding: 25px; border-radius: 10px; width: 300px; text-align: center; }
+        .modal-card h3 { color: #008069; margin-bottom: 8px; }
+        .modal-card p { font-size: 13px; color: #666; margin-bottom: 18px; }
+        .modal-btn { width: 100%; padding: 10px; margin-bottom: 8px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .btn-add { background: #25d366; color: white; }
+        .btn-msg { background: #008069; color: white; }
+        .btn-close { background: #e9edef; color: #333; }
+    </style>
+</head>
+<body>
+
+    <div id="toastBox"></div>
+
+    <div id="profileModal">
+        <div class="modal-card">
+            <h3 id="modalUsername">Kullanıcı</h3>
+            <p>Kullanıcı Profili</p>
+            <button class="modal-btn btn-add" id="modalAddBtn" onclick="addFriendFromModal()">+ Arkadaş Ekle</button>
+            <button class="modal-btn btn-msg" onclick="chatWithFriendFromModal()">Mesaj Gönder</button>
+            <button class="modal-btn btn-close" onclick="closeProfile()">Kapat</button>
+        </div>
+    </div>
+
+    <div id="loginScreen">
+        <h2>Sohbete Giriş</h2>
+        <input type="text" id="usernameInput" placeholder="Kullanıcı Adınız">
+        <input type="password" id="passwordInput" placeholder="Şifreniz">
+        <button type="button" id="loginBtn" onclick="login()">Giriş Yap</button>
+        <div id="loginStatus" style="margin-top: 12px; font-size: 13px; color: #008069; font-weight: bold;"></div>
+    </div>
+
+    <div id="appScreen">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <span id="displayUser">Kullanıcı</span>
+                <span style="font-size: 12px; opacity: 0.9;">Çevrimiçi</span>
+            </div>
+
+            <div class="tabs">
+                <button type="button" class="tab-btn active" id="tabRooms" onclick="switchTab('rooms')">
+                    Odalar <span class="tab-dot" id="dotRooms"></span>
+                </button>
+                <button type="button" class="tab-btn" id="tabFriends" onclick="switchTab('friends')">
+                    Arkadaşlar <span class="tab-dot" id="dotFriends"></span>
+                </button>
+            </div>
+
+            <div id="roomsSection" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                <div class="create-room">
+                    <input type="text" id="newRoomInput" placeholder="Oda adı yaz...">
+                    <button type="button" onclick="createOrJoinRoom()">Oluştur</button>
+                </div>
+                <ul class="list-container" id="roomList"></ul>
+            </div>
+
+            <div id="friendsSection" style="display: none; flex-direction: column; flex: 1; overflow: hidden;">
+                <div style="padding: 8px 12px; background: #f0f2f5; font-size: 12px; color: #54656f;">
+                    Sohbetteki isimlere tıklayarak profilinden arkadaş ekleyebilirsin.
+                </div>
+                <ul class="list-container" id="friendList"></ul>
+            </div>
+        </div>
+
+        <div class="chat-area">
+            <div class="chat-header">
+                <div>
+                    <strong id="activeChatTitle">Bir oda veya arkadaş seçin</strong>
+                    <div id="activeChatSub" style="font-size: 12px; opacity: 0.9;"></div>
+                </div>
+            </div>
+            <div class="messages" id="messagesBox"></div>
+            <form class="input-box" onsubmit="sendMessage(event)">
+                <input type="text" id="msgInput" placeholder="Bir mesaj yazın..." disabled autocomplete="off">
+                <button type="submit" id="sendBtn" disabled>Gönder</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        window.onerror = function(msg) {
+            alert("Kod Hatası: " + msg);
+        };
+
+        let ws = null;
+        let myUsername = "";
+        let activeTab = "rooms";
+        let activeChat = { type: null, name: null };
+        
+        let allRooms = {};
+        let onlineUsers = [];
+        let friends = [];
+        let selectedProfileUser = "";
+
+        let roomHistory = {};
+        let friendHistory = {};
+        let unreadRooms = {};
+        let unreadFriends = {};
+
+        function login() {
+            const user = document.getElementById("usernameInput").value.trim();
+            const pass = document.getElementById("passwordInput").value.trim();
+            const statusDiv = document.getElementById("loginStatus");
+            const loginBtn = document.getElementById("loginBtn");
+
+            if (!user || !pass) {
+                statusDiv.style.color = "red";
+                statusDiv.innerText = "Lütfen isim ve şifre girin!";
+                return;
+            }
+
+            if (window.location.protocol === "file:") {
+                statusDiv.style.color = "red";
+                statusDiv.innerText = "Hata: Render web sitesi linkinden açmalısınız!";
+                return;
+            }
+
+            loginBtn.disabled = true;
+            statusDiv.style.color = "#008069";
+            statusDiv.innerText = "Sunucuya bağlanılıyor...";
+
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            ws = new WebSocket(protocol + "//" + window.location.host + "/ws");
+
+            ws.onopen = function() {
+                statusDiv.innerText = "Bağlandı, giriş yapılıyor...";
+                ws.send(JSON.stringify({ action: "login", username: user }));
+            };
+
+            ws.onerror = function() {
+                loginBtn.disabled = false;
+                statusDiv.style.color = "red";
+                statusDiv.innerText = "Bağlantı hatası! Sunucu uyanıyor olabilir, tekrar basın.";
+            };
+
+            ws.onclose = function() {
+                loginBtn.disabled = false;
+                if (!myUsername) {
+                    statusDiv.style.color = "red";
+                    statusDiv.innerText = "Bağlantı kesildi. Tekrar Giriş Yap'a basın.";
+                }
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "login_ok") {
+                    myUsername = data.username;
+                    document.getElementById("displayUser").innerText = myUsername;
+                    document.getElementById("loginScreen").style.display = "none";
+                    document.getElementById("appScreen").style.display = "flex";
+                    if ("Notification" in window && Notification.permission !== "granted") {
+                        Notification.requestPermission();
+                    }
+                }
+                else if (data.type === "login_error") {
+                    loginBtn.disabled = false;
+                    statusDiv.style.color = "red";
+                    statusDiv.innerText = data.message;
+                }
+                else if (data.type === "error") {
+                    alert(data.message);
+                }
+                else if (data.type === "state_update") {
+                    allRooms = data.rooms;
+                    onlineUsers = data.users;
+                    renderRooms();
+                    renderFriends();
+                }
+                else if (data.type === "joined_room") {
+                    activeChat = { type: "room", name: data.room_name };
+                    unreadRooms[data.room_name] = 0;
+                    document.getElementById("activeChatTitle").innerText = "Oda: " + data.room_name;
+                    document.getElementById("activeChatSub").innerText = data.count + " / 15 kişi odada";
+                    document.getElementById("msgInput").disabled = false;
+                    document.getElementById("sendBtn").disabled = false;
+                    renderMessages();
+                    renderRooms();
+                }
+                else if (data.type === "room_created_notif") {
+                    showNotification('Yeni Oda Kuruldu: "' + data.room_name + '" (' + data.creator + ')', function() {
+                        switchTab("rooms");
+                        joinRoom(data.room_name);
+                    });
+                    if (activeTab !== "rooms") document.getElementById("dotRooms").style.display = "inline-block";
+                }
+                else if (data.type === "room_system") {
+                    if (!roomHistory[data.room_name]) roomHistory[data.room_name] = [];
+                    roomHistory[data.room_name].push({ type: "sys", text: data.message });
+                    if (activeChat.type === "room" && activeChat.name === data.room_name) {
+                        document.getElementById("activeChatSub").innerText = data.count + " / 15 kişi odada";
+                        renderMessages();
+                    }
+                }
+                else if (data.type === "room_chat") {
+                    if (!roomHistory[data.room_name]) roomHistory[data.room_name] = [];
+                    roomHistory[data.room_name].push({ type: "msg", sender: data.sender, text: data.text });
+
+                    if (activeChat.type === "room" && activeChat.name === data.room_name && !document.hidden) {
+                        renderMessages();
+                    } else {
+                        unreadRooms[data.room_name] = (unreadRooms[data.room_name] || 0) + 1;
+                        renderRooms();
+                        if (activeTab !== "rooms") document.getElementById("dotRooms").style.display = "inline-block";
+                        if (data.sender !== myUsername) {
+                            showNotification("[" + data.room_name + "] " + data.sender + ": " + data.text, function() {
+                                switchTab("rooms");
+                                joinRoom(data.room_name);
+                            });
+                        }
+                    }
+                }
+                else if (data.type === "friend_added_notif") {
+                    if (friends.indexOf(data.from_user) === -1) friends.push(data.from_user);
+                    renderFriends();
+                    showNotification(data.from_user + " seni arkadaş olarak ekledi!", function() {
+                        switchTab("friends");
+                        openFriendChat(data.from_user);
+                    });
+                    if (activeTab !== "friends") document.getElementById("dotFriends").style.display = "inline-block";
+                }
+                else if (data.type === "private_chat") {
+                    const partner = data.from_user === myUsername ? data.to_user : data.from_user;
+                    if (friends.indexOf(partner) === -1) friends.push(partner);
+                    if (!friendHistory[partner]) friendHistory[partner] = [];
+                    friendHistory[partner].push({ type: "msg", sender: data.from_user, text: data.text });
+
+                    if (activeChat.type === "friend" && activeChat.name === partner && !document.hidden) {
+                        renderMessages();
+                    } else {
+                        unreadFriends[partner] = (unreadFriends[partner] || 0) + 1;
+                        renderFriends();
+                        if (activeTab !== "friends") document.getElementById("dotFriends").style.display = "inline-block";
+                        if (data.from_user !== myUsername) {
+                            showNotification("Özel Mesaj - " + data.from_user + ": " + data.text, function() {
+                                switchTab("friends");
+                                openFriendChat(data.from_user);
+                            });
+                        }
+                    }
+                }
+            };
+        }
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById("tabRooms").classList.toggle("active", tab === "rooms");
+            document.getElementById("tabFriends").classList.toggle("active", tab === "friends");
+            document.getElementById("roomsSection").style.display = tab === "rooms" ? "flex" : "none";
+            document.getElementById("friendsSection").style.display = tab === "friends" ? "flex" : "none";
+            if (tab === "rooms") document.getElementById("dotRooms").style.display = "none";
+            if (tab === "friends") document.getElementById("dotFriends").style.display = "none";
+        }
+
+        function createOrJoinRoom() {
+            const input = document.getElementById("newRoomInput");
+            const roomName = input.value.trim();
+            if (!roomName) return alert("Lütfen bir oda adı yazın!");
+            joinRoom(roomName);
+            input.value = "";
+        }
+
+        function joinRoom(roomName) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "join_room", room_name: roomName }));
+            }
+        }
+
+        function openFriendChat(friendName) {
+            activeChat = { type: "friend", name: friendName };
+            unreadFriends[friendName] = 0;
+            const isOnline = onlineUsers.indexOf(friendName) !== -1;
+            document.getElementById("activeChatTitle").innerText = friendName;
+            document.getElementById("activeChatSub").innerText = isOnline ? "Çevrimiçi (Özel Sohbet)" : "Çevrimdışı";
+            document.getElementById("msgInput").disabled = false;
+            document.getElementById("sendBtn").disabled = false;
+            renderMessages();
+            renderFriends();
+        }
+
+        function renderRooms() {
+            const list = document.getElementById("roomList");
+            list.innerHTML = "";
+            for (const name in allRooms) {
+                const count = allRooms[name];
+                const isActive = activeChat.type === "room" && activeChat.name === name;
+                const unread = unreadRooms[name] || 0;
+                const li = document.createElement("li");
+                li.className = "list-item" + (isActive ? " active" : "");
+                li.innerHTML = "<span><strong>" + escapeHTML(name) + "</strong></span><div><span class='badge'>" + count + "/15</span>" + (unread > 0 ? "<span class='unread-badge'>" + unread + "</span>" : "") + "</div>";
+                li.onclick = function() { joinRoom(name); };
+                list.appendChild(li);
+            }
+        }
+
+        function renderFriends() {
+            const list = document.getElementById("friendList");
+            list.innerHTML = "";
+            if (friends.length === 0) {
+                list.innerHTML = "<li style='padding: 15px; color: #888; font-size: 13px;'>Henüz arkadaşın yok. Odalardaki kullanıcı isimlerine tıklayıp ekleyebilirsin.</li>";
+                return;
+            }
+            for (let i = 0; i < friends.length; i++) {
+                const friend = friends[i];
+                const isActive = activeChat.type === "friend" && activeChat.name === friend;
+                const unread = unreadFriends[friend] || 0;
+                const isOnline = onlineUsers.indexOf(friend) !== -1;
+                const li = document.createElement("li");
+                li.className = "list-item" + (isActive ? " active" : "");
+                li.innerHTML = "<div><strong>" + escapeHTML(friend) + "</strong><div style='font-size: 11px; color: " + (isOnline ? "#25d366" : "#888") + ";'>" + (isOnline ? "Çevrimiçi" : "Çevrimdışı") + "</div></div>" + (unread > 0 ? "<span class='unread-badge'>" + unread + "</span>" : "");
+                li.onclick = function() { openFriendChat(friend); };
+                list.appendChild(li);
+            }
+        }
+
+        function sendMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById("msgInput");
+            const text = input.value.trim();
+            if (!text || !activeChat.name) return;
+
+            if (activeChat.type === "room") {
+                ws.send(JSON.stringify({ action: "room_message", room_name: activeChat.name, text: text }));
+            } else if (activeChat.type === "friend") {
+                ws.send(JSON.stringify({ action: "private_message", target: activeChat.name, text: text }));
+            }
+            input.value = "";
+        }
+
+        function renderMessages() {
+            const box = document.getElementById("messagesBox");
+            box.innerHTML = "";
+            const history = activeChat.type === "room" ? (roomHistory[activeChat.name] || []) : (friendHistory[activeChat.name] || []);
+
+            for (let i = 0; i < history.length; i++) {
+                const item = history[i];
+                if (item.type === "sys") {
+                    const div = document.createElement("div");
+                    div.className = "sys-msg";
+                    div.innerText = item.text;
+                    box.appendChild(div);
+                } else {
+                    const isMe = item.sender === myUsername;
+                    const div = document.createElement("div");
+                    div.className = "msg " + (isMe ? "sent" : "received");
+                    let senderHtml = "";
+                    if (!isMe) {
+                        senderHtml = "<div class='msg-sender' onclick=\"openProfile('" + escapeHTML(item.sender) + "')\">" + escapeHTML(item.sender) + "</div>";
+                    }
+                    div.innerHTML = senderHtml + "<div>" + escapeHTML(item.text) + "</div>";
+                    box.appendChild(div);
+                }
+            }
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function openProfile(user) {
+            if (user === myUsername) return;
+            selectedProfileUser = user;
+            document.getElementById("modalUsername").innerText = user;
+            const addBtn = document.getElementById("modalAddBtn");
+            if (friends.indexOf(user) !== -1) {
+                addBtn.innerText = "✓ Arkadaş Eklendi";
+                addBtn.disabled = true;
+            } else {
+                addBtn.innerText = "+ Arkadaş Ekle";
+                addBtn.disabled = false;
+            }
+            document.getElementById("profileModal").style.display = "flex";
+        }
+
+        function closeProfile() {
+            document.getElementById("profileModal").style.display = "none";
+        }
+
+        function addFriendFromModal() {
+            if (selectedProfileUser && friends.indexOf(selectedProfileUser) === -1) {
+                friends.push(selectedProfileUser);
+                ws.send(JSON.stringify({ action: "add_friend", target: selectedProfileUser }));
+                renderFriends();
+                showNotification(selectedProfileUser + " arkadaş listene eklendi.");
+            }
+            closeProfile();
+        }
+
+        function chatWithFriendFromModal() {
+            if (selectedProfileUser) {
+                if (friends.indexOf(selectedProfileUser) === -1) {
+                    friends.push(selectedProfileUser);
+                    ws.send(JSON.stringify({ action: "add_friend", target: selectedProfileUser }));
+                }
+                closeProfile();
+                switchTab("friends");
+                openFriendChat(selectedProfileUser);
+            }
+        }
+
+        function showNotification(text, onClickAction) {
+            const box = document.getElementById("toastBox");
+            const toast = document.createElement("div");
+            toast.className = "toast";
+            toast.innerText = text;
+            toast.onclick = function() {
+                if (onClickAction) onClickAction();
+                toast.remove();
+            };
+            box.appendChild(toast);
+            setTimeout(function() { toast.remove(); }, 4500);
+
+            if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+                new Notification("Sohbet Bildirimi", { body: text });
+            }
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, function(tag) {
+                const chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
+                return chars[tag] || tag;
+            });
+        }
+    </script>
+</body>
+</html>
