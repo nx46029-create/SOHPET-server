@@ -2,19 +2,28 @@ import os
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Aktif kullanıcılar: { "kullanici_adi": websocket }
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 online_users = {}
-# Odalar: { "oda_adi": [websocket1, websocket2, ...] }
 rooms = {}
 MAX_USERS_PER_ROOM = 15
 
 @app.get("/")
 async def get():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    if os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return {"status": "online", "message": "Sohbet sunucusu aktif"}
 
 async def broadcast_state():
     room_info = {name: len(users) for name, users in rooms.items()}
@@ -42,7 +51,10 @@ async def websocket_endpoint(websocket: WebSocket):
             data = json.loads(raw_data)
             action = data.get("action")
 
-            # 1. GİRİŞ YAPMA
+            if action == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+                continue
+
             if action == "login":
                 req_user = data.get("username", "").strip()
                 if not req_user:
@@ -58,7 +70,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"type": "login_ok", "username": username}))
                 await broadcast_state()
 
-            # 2. ODA OLUŞTURMA VEYA KATILMA
             elif action == "join_room":
                 room_name = data.get("room_name", "").strip()
                 if not room_name:
@@ -75,7 +86,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     }))
                     continue
 
-                # Önceki odadan çık
                 if current_room and current_room in rooms and websocket in rooms[current_room]:
                     if current_room != room_name:
                         rooms[current_room].remove(websocket)
@@ -92,7 +102,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     "count": len(rooms[room_name])
                 }))
 
-                # Yeni oda kurulduysa herkese bildirim gönder
                 if is_new_room:
                     notif = json.dumps({
                         "type": "room_created_notif",
@@ -106,7 +115,6 @@ async def websocket_endpoint(websocket: WebSocket):
                             except:
                                 pass
 
-                # Odaya katılım bilgisi
                 join_msg = json.dumps({
                     "type": "room_system",
                     "room_name": room_name,
@@ -118,7 +126,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 await broadcast_state()
 
-            # 3. ODA MESAJI GÖNDERME
             elif action == "room_message":
                 room_name = data.get("room_name")
                 text = data.get("text", "").strip()
@@ -132,7 +139,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     for ws in rooms[room_name]:
                         await ws.send_text(msg_payload)
 
-            # 4. ARKADAŞLIK İSTEĞİ / EKLEME BİLDİRİMİ
             elif action == "add_friend":
                 target = data.get("target")
                 if target in online_users and target != username:
@@ -141,7 +147,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         "from_user": username
                     }))
 
-            # 5. ÖZEL MESAJ (ARKADAŞ SOHBETİ)
             elif action == "private_message":
                 target = data.get("target")
                 text = data.get("text", "").strip()
