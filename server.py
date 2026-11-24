@@ -1,130 +1,177 @@
 import os
-import time
-from fastapi import FastAPI
+import json
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Bellek içi canlı veriler
-users_last_seen = {}      # { "kullanici": timestamp }
-rooms = {}                # { "oda_adi": ["user1", "user2"] }
-events = []               # Tüm canlı olaylar listesi
+# Aktif kullanıcılar: { "kullanici_adi": websocket }
+online_users = {}
+# Odalar: { "oda_adi": [websocket1, websocket2, ...] }
+rooms = {}
 MAX_USERS_PER_ROOM = 15
 
-class LoginReq(BaseModel):
-    username: str
-
-class ActionReq(BaseModel):
-    username: str
-    action: str
-    room_name: str = ""
-    target: str = ""
-    text: str = ""
-
-def clean_inactive():
-    now = time.time()
-    dead = [u for u, t in users_last_seen.items() if now - t > 25]
-    for u in dead:
-        del users_last_seen[u]
-        for r_name in list(rooms.keys()):
-            if u in rooms[r_name]:
-                rooms[r_name].remove(u)
-                events.append({"id": len(events) + 1, "type": "room_system", "room_name": r_name, "message": f"{u} ayrıldı."})
-                if len(rooms[r_name]) == 0:
-                    del rooms[r_name]
-
 @app.get("/")
-async def home():
-    if os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
-    return {"status": "online"}
+async def get():
+    with open("index.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
 
-@app.post("/api/login")
-async def api_login(req: LoginReq):
-    clean_inactive()
-    user = req.username.strip()
-    if not user:
-        return {"ok": False, "message": "Kullanıcı adı boş olamaz."}
-    if user in users_last_seen:
-        return {"ok": False, "message": "Bu kullanıcı adı şu an aktif! Başka isim seç."}
-    users_last_seen[user] = time.time()
-    return {"ok": True, "username": user, "last_id": len(events)}
+async def broadcast_state():
+    room_info = {name: len(users) for name, users in rooms.items()}
+    user_list = list(online_users.keys())
+    payload = json.dumps({
+        "type": "state_update",
+        "rooms": room_info,
+        "users": user_list
+    })
+    for ws in list(online_users.values()):
+        try:
+            await ws.send_text(payload)
+        except:
+            pass
 
-@app.post("/api/action")
-async def api_action(req: ActionReq):
-    clean_inactive()
-    user = req.username.strip()
-    users_last_seen[user] = time.time()
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    username = None
+    current_room = None
 
-    if req.action == "join_room":
-        r_name = req.room_name.strip()
-        if not r_name:
-            return {"ok": False, "message": "Oda adı boş olamaz."}
-        is_new = r_name not in rooms
-        if is_new:
-            rooms[r_name] = []
-        if len(rooms[r_name]) >= MAX_USERS_PER_ROOM and user not in rooms[r_name]:
-            return {"ok": False, "message": "Bu oda dolu! (Max 15 kişi)"}
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            data = json.loads(raw_data)
+            action = data.get("action")
 
-        # Eski odalardan çıkar
-        for old_r in list(rooms.keys()):
-            if old_r != r_name and user in rooms[old_r]:
-                rooms[old_r].remove(user)
-                if len(rooms[old_r]) == 0:
-                    del rooms[old_r]
+            # 1. GİRİŞ YAPMA
+            if action == "login":
+                req_user = data.get("username", "").strip()
+                if not req_user:
+                    continue
+                if req_user in online_users:
+                    await websocket.send_text(json.dumps({
+                        "type": "login_error",
+                        "message": "Bu kullanıcı adı şu an aktif! Başka bir isim seç."
+                    }))
+                    continue
+                username = req_user
+                online_users[username] = websocket
+                await websocket.send_text(json.dumps({"type": "login_ok", "username": username}))
+                await broadcast_state()
 
-        if user not in rooms[r_name]:
-            rooms[r_name].append(user)
-            events.append({"id": len(events) + 1, "type": "room_system", "room_name": r_name, "message": f"{user} odaya katıldı."})
+            # 2. ODA OLUŞTURMA VEYA KATILMA
+            elif action == "join_room":
+                room_name = data.get("room_name", "").strip()
+                if not room_name:
+                    continue
 
-        if is_new:
-            events.append({"id": len(events) + 1, "type": "room_created_notif", "room_name": r_name, "creator": user})
+                is_new_room = room_name not in rooms
+                if is_new_room:
+                    rooms[room_name] = []
 
-        return {"ok": True, "room_name": r_name, "count": len(rooms[r_name])}
+                if len(rooms[room_name]) >= MAX_USERS_PER_ROOM and websocket not in rooms[room_name]:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Bu oda dolu! (Maksimum 15 kişi)"
+                    }))
+                    continue
 
-    elif req.action == "room_message":
-        r_name = req.room_name.strip()
-        if r_name in rooms and req.text.strip():
-            events.append({"id": len(events) + 1, "type": "room_chat", "room_name": r_name, "sender": user, "text": req.text.strip()})
-        return {"ok": True}
+                # Önceki odadan çık
+                if current_room and current_room in rooms and websocket in rooms[current_room]:
+                    if current_room != room_name:
+                        rooms[current_room].remove(websocket)
+                        if len(rooms[current_room]) == 0:
+                            del rooms[current_room]
 
-    elif req.action == "add_friend":
-        if req.target:
-            events.append({"id": len(events) + 1, "type": "friend_added_notif", "from_user": user, "to_user": req.target})
-        return {"ok": True}
+                if websocket not in rooms[room_name]:
+                    rooms[room_name].append(websocket)
+                current_room = room_name
 
-    elif req.action == "private_message":
-        if req.target and req.text.strip():
-            events.append({"id": len(events) + 1, "type": "private_chat", "from_user": user, "to_user": req.target, "text": req.text.strip()})
-        return {"ok": True}
+                await websocket.send_text(json.dumps({
+                    "type": "joined_room",
+                    "room_name": room_name,
+                    "count": len(rooms[room_name])
+                }))
 
-    return {"ok": True}
+                # Yeni oda kurulduysa herkese bildirim gönder
+                if is_new_room:
+                    notif = json.dumps({
+                        "type": "room_created_notif",
+                        "room_name": room_name,
+                        "creator": username
+                    })
+                    for u_name, ws in online_users.items():
+                        if u_name != username:
+                            try:
+                                await ws.send_text(notif)
+                            except:
+                                pass
 
-@app.get("/api/poll")
-async def api_poll(username: str, last_id: int = 0):
-    clean_inactive()
-    if username:
-        users_last_seen[username] = time.time()
-    new_events = [e for e in events if e["id"] > last_id]
-    room_counts = {name: len(members) for name, members in rooms.items()}
-    return {
-        "ok": True,
-        "events": new_events,
-        "last_id": events[-1]["id"] if events else last_id,
-        "rooms": room_counts,
-        "users": list(users_last_seen.keys())
-    }
+                # Odaya katılım bilgisi
+                join_msg = json.dumps({
+                    "type": "room_system",
+                    "room_name": room_name,
+                    "message": f"{username} odaya katıldı.",
+                    "count": len(rooms[room_name])
+                })
+                for ws in rooms[room_name]:
+                    await ws.send_text(join_msg)
+
+                await broadcast_state()
+
+            # 3. ODA MESAJI GÖNDERME
+            elif action == "room_message":
+                room_name = data.get("room_name")
+                text = data.get("text", "").strip()
+                if room_name in rooms and text:
+                    msg_payload = json.dumps({
+                        "type": "room_chat",
+                        "room_name": room_name,
+                        "sender": username,
+                        "text": text
+                    })
+                    for ws in rooms[room_name]:
+                        await ws.send_text(msg_payload)
+
+            # 4. ARKADAŞLIK İSTEĞİ / EKLEME BİLDİRİMİ
+            elif action == "add_friend":
+                target = data.get("target")
+                if target in online_users and target != username:
+                    await online_users[target].send_text(json.dumps({
+                        "type": "friend_added_notif",
+                        "from_user": username
+                    }))
+
+            # 5. ÖZEL MESAJ (ARKADAŞ SOHBETİ)
+            elif action == "private_message":
+                target = data.get("target")
+                text = data.get("text", "").strip()
+                if target in online_users and text:
+                    payload = json.dumps({
+                        "type": "private_chat",
+                        "from_user": username,
+                        "to_user": target,
+                        "text": text
+                    })
+                    await online_users[target].send_text(payload)
+                    await websocket.send_text(payload)
+
+    except WebSocketDisconnect:
+        if username and username in online_users:
+            del online_users[username]
+        if current_room and current_room in rooms and websocket in rooms[current_room]:
+            rooms[current_room].remove(websocket)
+            if len(rooms[current_room]) == 0:
+                del rooms[current_room]
+            else:
+                leave_msg = json.dumps({
+                    "type": "room_system",
+                    "room_name": current_room,
+                    "message": f"{username} ayrıldı.",
+                    "count": len(rooms[current_room])
+                })
+                for ws in rooms[current_room]:
+                    await ws.send_text(leave_msg)
+        await broadcast_state()
 
 if __name__ == "__main__":
     import uvicorn
